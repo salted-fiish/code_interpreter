@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Code Runner - Debug Mode</title>
+    <style>
+        body {
+            font-family: 'Courier New', Courier, monospace;
+            background-color: #1e1e1e;
+            color: #d4d4d4;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .input-area {
+            margin-bottom: 20px;
+            position: sticky;
+            top: 0;
+            background-color: #1e1e1e;
+            padding: 10px 0;
+            z-index: 100;
+        }
+        textarea {
+            width: 100%;
+            height: 100px;
+            background-color: #2d2d2d;
+            color: #d4d4d4;
+            border: 1px solid #3d3d3d;
+            padding: 10px;
+            font-family: 'Courier New', Courier, monospace;
+        }
+        button {
+            background-color: #0e639c;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            cursor: pointer;
+            font-family: 'Courier New', Courier, monospace;
+        }
+        button:hover {
+            background-color: #1177bb;
+        }
+        .output-area {
+            background-color: #2d2d2d;
+            padding: 20px;
+            border: 1px solid #3d3d3d;
+            white-space: pre-wrap;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+        .log-entry {
+            margin-bottom: 20px;
+            padding: 10px;
+            border: 1px solid #3d3d3d;
+            background-color: #252526;
+        }
+        .timestamp {
+            color: #6a9955;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        .prompt {
+            color: #569cd6;
+        }
+        .explanation {
+            color: #9cdcfe;
+            margin: 10px 0;
+        }
+        .code {
+            color: #dcdcaa;
+            background-color: #1e1e1e;
+            padding: 10px;
+            margin: 10px 0;
+        }
+        .output {
+            color: #9cdcfe;
+        }
+        .error {
+            color: #f14c4c;
+        }
+        .gpt-log {
+            color: #ce9178;
+            background-color: #1e1e1e;
+            padding: 10px;
+            margin: 10px 0;
+            border-left: 3px solid #ce9178;
+        }
+        .gpt-message {
+            margin: 5px 0;
+            padding: 5px;
+            background-color: #252526;
+        }
+        .gpt-role {
+            color: #569cd6;
+            font-weight: bold;
+            margin-right: 10px;
+        }
+        .gpt-content {
+            white-space: pre-wrap;
+        }
+        .section-title {
+            color: #ce9178;
+            font-weight: bold;
+            margin: 10px 0;
+            padding-bottom: 5px;
+            border-bottom: 1px solid #3d3d3d;
+        }
+        .clear-button {
+            background-color: #d83b01;
+            margin-left: 10px;
+        }
+        .clear-button:hover {
+            background-color: #f14c4c;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="input-area">
+            <textarea id="prompt" placeholder="Enter your request, e.g., write a function to calculate Fibonacci numbers"></textarea>
+            <button onclick="runCode()">Execute</button>
+            <button onclick="clearHistory()" class="clear-button">Clear History</button>
+        </div>
+        <div id="log" class="output-area"></div>
+    </div>
+
+    <script>
+        let conversationHistory = null;
+
+        function addLogEntry(type, content) {
+            const log = document.getElementById('log');
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            
+            const timestamp = new Date().toLocaleTimeString();
+            entry.innerHTML = `<div class="timestamp">[${timestamp}]</div>`;
+            
+            switch(type) {
+                case 'prompt':
+                    entry.innerHTML += `<div class="section-title">User Input</div>`;
+                    entry.innerHTML += `<div class="prompt">${content}</div>`;
+                    break;
+                case 'gpt-log':
+                    entry.innerHTML += `<div class="section-title">GPT Conversation</div>`;
+                    let gptLogHtml = '<div class="gpt-log">';
+                    gptLogHtml += '<div class="gpt-message"><span class="gpt-role">Messages sent to GPT:</span></div>';
+                    content.messages.forEach(msg => {
+                        gptLogHtml += `<div class="gpt-message">
+                            <span class="gpt-role">${msg.role}:</span>
+                            <div class="gpt-content">${msg.content}</div>
+                        </div>`;
+                    });
+                    gptLogHtml += '<div class="gpt-message"><span class="gpt-role">GPT Response:</span></div>';
+                    gptLogHtml += `<div class="gpt-message"><div class="gpt-content">${content.response}</div></div>`;
+                    gptLogHtml += '</div>';
+                    entry.innerHTML += gptLogHtml;
+                    break;
+                case 'explanation':
+                    entry.innerHTML += `<div class="section-title">Explanation</div>`;
+                    entry.innerHTML += `<div class="explanation">${content}</div>`;
+                    break;
+                case 'code':
+                    entry.innerHTML += `<div class="section-title">Code</div>`;
+                    entry.innerHTML += `<div class="code">${content}</div>`;
+                    break;
+                case 'output':
+                    entry.innerHTML += `<div class="section-title">Execution Result</div>`;
+                    entry.innerHTML += `<div class="output">${content}</div>`;
+                    break;
+                case 'error':
+                    entry.innerHTML += `<div class="section-title">Error</div>`;
+                    entry.innerHTML += `<div class="error">${content}</div>`;
+                    break;
+            }
+            
+            log.insertBefore(entry, log.firstChild);
+        }
+
+        async function runCode() {
+            const prompt = document.getElementById('prompt').value;
+            if (!prompt) return;
+            
+            addLogEntry('prompt', prompt);
+            
+            try {
+                const formData = new FormData();
+                formData.append('prompt', prompt);
+                if (conversationHistory) {
+                    formData.append('history', JSON.stringify(conversationHistory));
+                }
+                
+                const response = await fetch('/run_code', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const result = await response.json();
+                
+                if (result.gpt_log) {
+                    addLogEntry('gpt-log', result.gpt_log);
+                }
+                
+                if (result.explanation) {
+                    addLogEntry('explanation', result.explanation);
+                }
+                
+                if (result.code) {
+                    addLogEntry('code', result.code);
+                }
+                
+                if (result.status === 'success') {
+                    addLogEntry('output', result.output || 'No output');
+                    // Update conversation history
+                    if (result.history) {
+                        conversationHistory = result.history;
+                    }
+                } else {
+                    addLogEntry('error', result.output);
+                    // If execution fails, automatically send fix request
+                    const errorFormData = new FormData();
+                    errorFormData.append('prompt', prompt);
+                    errorFormData.append('error', result.output);
+                    if (conversationHistory) {
+                        errorFormData.append('history', JSON.stringify(conversationHistory));
+                    }
+                    
+                    const fixResponse = await fetch('/run_code', {
+                        method: 'POST',
+                        body: errorFormData
+                    });
+                    
+                    const fixResult = await fixResponse.json();
+                    
+                    if (fixResult.gpt_log) {
+                        addLogEntry('gpt-log', fixResult.gpt_log);
+                    }
+                    
+                    if (fixResult.explanation) {
+                        addLogEntry('explanation', fixResult.explanation);
+                    }
+                    
+                    if (fixResult.code) {
+                        addLogEntry('code', fixResult.code);
+                    }
+                    
+                    if (fixResult.status === 'success') {
+                        addLogEntry('output', fixResult.output || 'No output');
+                    } else {
+                        addLogEntry('error', fixResult.output);
+                    }
+                    
+                    // Update conversation history
+                    if (fixResult.history) {
+                        conversationHistory = fixResult.history;
+                    }
+                }
+                
+                // Clear input field
+                document.getElementById('prompt').value = '';
+            } catch (error) {
+                addLogEntry('error', error.message);
+            }
+        }
+
+        function clearHistory() {
+            conversationHistory = null;
+            document.getElementById('log').innerHTML = '';
+            document.getElementById('prompt').value = '';
+        }
+
+        // Support Enter key to send
+        document.getElementById('prompt').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                runCode();
+            }
+        });
+    </script>
+</body>
+</html> 
